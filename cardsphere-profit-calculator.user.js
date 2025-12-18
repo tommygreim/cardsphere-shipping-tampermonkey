@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cardsphere Profit Calculator
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      2.0
 // @description  Calculate actual profit after shipping costs for Cardsphere packages
 // @author       You
 // @match        https://www.cardsphere.com/send
@@ -16,40 +16,40 @@
     const SHIPPING_INTERNATIONAL = 1.70;
 
     function calculateProfits() {
-        // Find all packages
-        const packages = document.querySelectorAll('.cs-package.package');
+        // Find all packages using the new React/CSS modules class structure
+        const packages = document.querySelectorAll('[class*="PotentialPackage"][class*="container"]');
 
         packages.forEach(pkg => {
-            // Find the flag icon to determine country
-            const flagIcon = pkg.querySelector('.flag-icon');
-            if (!flagIcon) return;
+            // Find the header section
+            const header = pkg.querySelector('[class*="PotentialPackage"][class*="header"]');
+            if (!header) return;
 
-            const country = flagIcon.getAttribute('data-original-title');
+            // Find the country flag to determine shipping cost
+            const flagSpan = header.querySelector('span.fi[title]');
+            if (!flagSpan) return;
+
+            const country = flagSpan.getAttribute('title');
             const isUS = country === 'United States of America';
             const shippingCost = isUS ? SHIPPING_US : SHIPPING_INTERNATIONAL;
 
-            // Find the package heading div that contains prices
-            const packageHeading = pkg.querySelector('.package-heading');
-            if (!packageHeading) return;
+            // Find all direct child divs in the header
+            const headerDivs = header.querySelectorAll(':scope > div');
+            if (headerDivs.length < 3) return;
 
-            // Find the offer price (strong.with-bg in the second div)
-            const priceDivs = packageHeading.querySelectorAll('div');
-            if (priceDivs.length < 2) return;
+            // The third div contains the price information: <b>$7.95</b>&nbsp;&nbsp;100% of $7.95
+            const priceDiv = headerDivs[2];
 
-            const priceDiv = priceDivs[1];
-            const offerPriceElement = priceDiv.querySelector('strong.with-bg');
+            // Find the offer price in the <b> tag
+            const offerPriceElement = priceDiv.querySelector('b');
             if (!offerPriceElement) return;
 
             const offerPriceText = offerPriceElement.textContent.trim();
             const offerPrice = parseFloat(offerPriceText.replace('$', ''));
 
-            // Find the efficiency index to extract market price
-            const efficiencyElement = priceDiv.querySelector('.efficiency-index.with-bg');
-            if (!efficiencyElement) return;
-
-            const efficiencyText = efficiencyElement.textContent.trim();
-            // Parse "249% of $0.51" to get market price
-            const marketPriceMatch = efficiencyText.match(/of\s+\$(\d+\.\d+)/);
+            // Extract the market price from the text after the <b> tag
+            const priceDivText = priceDiv.textContent;
+            // Pattern: "X% of $Y.YY"
+            const marketPriceMatch = priceDivText.match(/of\s+\$(\d+\.\d+)/);
             if (!marketPriceMatch) return;
 
             const marketPrice = parseFloat(marketPriceMatch[1]);
@@ -67,19 +67,18 @@
             postShippingDiv.style.color = '#28a745'; // Green color
             postShippingDiv.style.marginTop = '5px';
 
-            const priceSpan = document.createElement('strong');
+            const priceSpan = document.createElement('b');
             priceSpan.textContent = `$${postShippingPrice.toFixed(2)}`;
             priceSpan.style.color = '#28a745';
 
             const percentSpan = document.createElement('span');
             percentSpan.textContent = ` ${postShippingPercent}% of $${marketPrice.toFixed(2)}`;
             percentSpan.style.color = '#28a745';
-            percentSpan.style.marginLeft = '5px';
 
             postShippingDiv.appendChild(priceSpan);
             postShippingDiv.appendChild(percentSpan);
 
-            // Add after the efficiency index
+            // Add to the price div
             priceDiv.appendChild(document.createElement('br'));
             priceDiv.appendChild(postShippingDiv);
         });
@@ -92,19 +91,24 @@
         calculateProfits();
     }
 
-    // Also run after a short delay to catch any dynamically loaded content
+    // Run multiple times with delays to catch dynamically loaded content
     setTimeout(calculateProfits, 1000);
+    setTimeout(calculateProfits, 2000);
 
     // Watch for changes to the package list (in case it's dynamically updated)
     const observer = new MutationObserver(() => {
         calculateProfits();
     });
 
-    const packagesContainer = document.querySelector('.cs-row.packages');
-    if (packagesContainer) {
-        observer.observe(packagesContainer, {
-            childList: true,
-            subtree: true
-        });
-    }
+    // Wait for the container to exist before observing
+    const waitForContainer = setInterval(() => {
+        const packagesContainer = document.querySelector('[class*="SendPage"][class*="packageContainer"]');
+        if (packagesContainer) {
+            clearInterval(waitForContainer);
+            observer.observe(packagesContainer, {
+                childList: true,
+                subtree: true
+            });
+        }
+    }, 500);
 })();
